@@ -1,0 +1,654 @@
+---
+title: "Daily GPS"
+author: "Club Name"
+date: "`r format(Sys.time(), '%d %B %Y')`"
+output: 
+  html_document:
+      toc: TRUE
+runtime: shiny
+
+---
+
+
+```{r setup,warning=FALSE, message=FALSE, echo=FALSE}
+knitr::opts_chunk$set(comment = NA, echo = FALSE, error = FALSE)
+library(tidyverse)
+library(magrittr)
+library(kableExtra)
+library(formattable)
+library(sparkline)
+library(DT)
+library(ggiraph)
+library(shiny)
+
+
+###Load data
+df_all <- readr::read_csv('trial_data.csv')
+df_all2 <- df_all %>%
+  filter(Name != '6f0b0' & Name != 'efcaa')
+
+###Create List of Players & Positions
+positions <- df_all2 %>%
+  select(3:5) %>% 
+  distinct(Name, .keep_all=T)
+
+###Create weekly values
+weekly_loads <- df_all2 %>%
+  group_by(week, Name, `Forward/Back`) %>%
+  summarise(Distance = sum(dist_total),
+            MSR = round(sum(msr_total),0),
+            HSR = round(sum(hsr_total),0))%>%
+  group_by(Name) %>%
+  mutate(PreviousWeekDist = round(lag(Distance) , 0),
+         PreviousWeekMSR = round(lag(MSR) , 0),
+         PreviousWeekHSR = round(lag(HSR) , 0)) %>%
+  left_join(positions, 'Name')
+
+###Create max values for guages
+daily_max <- df_all2 %>%
+  group_by(Date, Name, `Forward/Back`, `Position Specific`) %>%
+  summarise(total_dist = sum(dist_total),
+            total_msr = sum(msr_total),
+            total_hsr = sum(hsr_total)) %>% 
+  group_by(`Forward/Back`) %>%
+  summarise(max_dist = max(total_dist),
+            max_hsr = max(total_hsr))
+
+###gauge shape
+shape_gauge <- function(){
+  coord_polar(theta = "y",start=-pi/2) 
+  
+}
+
+##Theme for gauage plots
+gauge_theme <- function(){
+  theme_classic()+
+    theme(axis.text = element_blank(), 
+          axis.ticks = element_blank(),
+          axis.line = element_blank(),
+          axis.title = element_blank(),
+          legend.position = "top",
+          legend.text.align = 0,
+          legend.background = ggplot2::element_blank(),
+          legend.title = ggplot2::element_blank(),
+          legend.key = ggplot2::element_blank(),
+          legend.text = ggplot2::element_text(size=4,
+                                              color="#222222"),
+          legend.spacing.x = unit(0.06, 'cm'),
+          plot.title = element_text(size=10),
+          plot.subtitle=element_text(size=5))
+}
+
+###function for colour code
+colour_func_gauge_dist <- function(x){
+  ifelse(
+    x$value_sc_half_dist > 45,'#800000',
+    ifelse(
+      x$value_sc_half_dist < 25, '#000080', '#008000'
+    )
+  )
+}
+
+##Colour code for hsr 
+colour_func_gauge_hsr <- function(x){
+  ifelse(
+    x$value_sc_half_hsr > 45, '#800000', 
+    ifelse(
+      x$value_sc_half_hsr < 25, '#000080', '#008000'
+    )
+  )
+}
+
+
+```
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+
+```{r }
+###Date select
+dateInput("date_select", label = "Select Date:",
+          value = '2018-04-07')
+```
+
+
+
+### Daily Overview Graphs
+
+```{r cars, r fig2, fig.height = 8, fig.width = 10, warning=FALSE, comment=FALSE, echoe=FALSE}
+
+renderGirafe({
+  
+   options(shiny.error = function() {
+    stop('Sorry, not enough data present for that date, try again')
+  })
+  
+  ###Filter for an indivudal day
+  daily_data <- df_all2 %>%
+    filter(Date == input$date_select)
+  
+  if(nrow(daily_data) < 5){
+    stop ('Sorry, not enough data present for that date, try again')
+  } else {
+  
+  
+  ###Create averages for gauage data  
+  gaugedata1 <- daily_data %>%
+    group_by(`Position Specific`, `Forward/Back`) %>%
+    summarise(avg_dist = mean(dist_total),
+              avg_msr = mean(msr_total),
+              avg_hsr = mean(hsr_total)
+    ) %>% 
+    left_join(daily_max, 'Forward/Back') %>% ungroup()
+  
+  ###Create scaled data
+  gaugedata2 <- gaugedata1 %>%
+    add_row(`Position Specific` = "A", `avg_dist` = 0, avg_hsr=0, 
+            max_dist=0, max_hsr =0, .before = 1) %>%
+    mutate(
+      group2 = toupper(`Position Specific`),
+      value_scale_dist = (avg_dist / max_dist)*100,
+      value_scale_hsr = (avg_hsr / max_hsr)*100,
+      value_sc_half_dist = value_scale_dist/2,
+      value_sc_half_hsr = value_scale_hsr/2,
+      aim = rep(50, nrow(.)),
+      tooltip1 = paste0(
+        `Position Specific`," ", round(avg_dist, 0), 'm\n', 'Max ', 
+        round(max_dist, 0), 'm\n', round(value_scale_dist,0),'%'),
+      tooltip2 = paste0(
+        `Position Specific`, " ", round(avg_hsr, 0),  'm\n', 'Max ', 
+        round(max_hsr, 0), 'm\n', round(value_scale_hsr,0),'%'))
+  
+  ##Remove additional row
+  gaugedata3 <- filter(gaugedata2, `Position Specific` != "A")
+  
+  ##Filter for positional groups
+  gaugedata_for <- gaugedata3 %>%
+    filter(`Forward/Back`=='Forwards')
+  
+  gaugedata_back <- gaugedata3 %>%
+    filter(`Forward/Back`=='Backs')
+  
+  ###Subtitle
+  subtitle <- 'Blue < 50%, Green 50-90%, Red > 90%'
+  
+  
+  ##Forwards total distance
+  distplot_for <- gaugedata2 %>%
+    filter(`Forward/Back` == 'Forwards'|is.na(`Forward/Back`)) %>%
+    ggplot(aes(x = `Position Specific`)) + 
+    geom_bar(width = 0.85, stat="identity", aes(y = value_scale_dist), 
+             colour = "white", fill = "white") +
+    geom_bar(data = gaugedata_for, aes(y = aim), width = 0.85, 
+             stat = "identity", colour = "grey68") +
+    geom_bar_interactive(
+      data=gaugedata_for, width = 0.85, stat = "identity",
+      aes(y = value_sc_half_dist, fill = `Position Specific`, tooltip=tooltip1), 
+                         colour='black') +
+    geom_text(data = gaugedata_for, aes(x = `Position Specific`, y = 50), 
+              label = paste0(round(gaugedata_for$value_scale_dist,0),'%'),
+              colour = "black", vjust = -1, size=1)+
+    labs(title ='Forwards Total Distance',
+         subtitle = subtitle) +
+    ylim(0,100) +
+    shape_gauge()+
+    geom_text(data = gaugedata_for, hjust = 1.02, size = 1, 
+              aes(x = `Position Specific`, y = 0, 
+                  label = `Position Specific`), angle = 70) +
+    scale_fill_manual(values = colour_func_gauge_dist(gaugedata_for)) +
+    gauge_theme()
+  
+  ##Backs total dist
+  distplot_back <- gaugedata2 %>%
+    filter(`Forward/Back` == 'Backs'| is.na(`Forward/Back`)) %>%
+    ggplot(aes(x = `Position Specific`)) + 
+    geom_bar(width = 0.85, stat="identity", aes(y = value_scale_dist), 
+             colour = "white", fill = "white") +
+    geom_bar(data = gaugedata_back, aes(y = aim), width = 0.85,
+             stat = "identity", colour = "grey68") +
+    geom_bar_interactive(data = gaugedata_back, width = 0.85, stat = "identity", 
+                         aes(y = value_sc_half_dist,fill = `Position Specific`,
+                             tooltip=tooltip1), colour='black') +
+    geom_text(data = gaugedata_back, aes(x = `Position Specific`, y = 50), 
+              label = paste0(round(gaugedata_back$value_scale_dist,0),'%'),
+              colour = "black", vjust = -1, size=1) +
+    labs(title ='Backs Total Distance',
+         subtitle = subtitle) +
+    ylim(0,100) +
+    shape_gauge()+
+    geom_text(data = gaugedata_back, hjust = 1.02, size = 1, 
+              aes(x = `Position Specific`, y = 0, label = `Position Specific`),
+              angle = 70) +
+    scale_fill_manual(values = colour_func_gauge_dist(gaugedata_back)) +
+    gauge_theme()
+  
+  
+  ##Forwards HSr
+  hsrplot_for <- gaugedata2 %>%
+    filter(`Forward/Back` == 'Forwards'|is.na(`Forward/Back`)) %>%
+    ggplot(aes(x = `Position Specific`)) + 
+    geom_bar(width = 0.85, stat="identity", aes(y = value_scale_hsr), 
+             colour = "white", fill = "white") +
+    geom_bar(data = gaugedata_for, aes(y = aim), width = 0.85, 
+             stat = "identity", colour = "grey68") +
+    geom_bar_interactive(data=gaugedata_for, width = 0.85, stat = "identity", 
+                         aes(y = value_sc_half_hsr, fill = `Position Specific`, 
+                             tooltip=tooltip2), colour='black') +
+    geom_text(data = gaugedata_for, aes(x = `Position Specific`, y = 50), 
+              label = paste0(round(gaugedata_for$value_scale_hsr,0),'%'),
+              colour = "black", vjust = -1, size = 1)+
+    labs(title ='Forwards HSR',
+         subtitle = subtitle) +
+    ylim(0,100) +
+    shape_gauge()+
+    geom_text(data = gaugedata_for, hjust = 1.02, size = 1, 
+              aes(x = `Position Specific`, y = 0, label = `Position Specific`), 
+              angle = 70) +
+    scale_fill_manual(values = colour_func_gauge_hsr(gaugedata_for)) +
+    gauge_theme()
+  
+  ##Backs HSR
+  hsrplot_back <- gaugedata2 %>%
+    filter(`Forward/Back` == 'Backs'|is.na(`Forward/Back`)) %>%
+    ggplot(aes(x = `Position Specific`)) + 
+    geom_bar(width = 0.85, stat="identity", aes(y = value_scale_hsr), 
+             colour = "white", fill = "white") +
+    geom_bar(data = gaugedata_back, aes(y = aim), width = 0.85, 
+             stat = "identity", colour = "grey68") +
+    geom_bar_interactive(data=gaugedata_back, width = 0.85, stat = "identity", 
+                         aes(y = value_sc_half_hsr, fill = `Position Specific`, 
+                             tooltip=tooltip2), colour='black') +
+    geom_text(data = gaugedata_back, aes(x = `Position Specific`, y = 50), 
+              label = paste0(round(gaugedata_back$value_scale_hsr,0),'%'),
+              colour = "black", vjust = -1, size = 1)+
+    labs(title ='Backs HSR',
+         subtitle = subtitle) +
+    ylim(0,100) +
+    shape_gauge()+
+    geom_text(data = gaugedata_back, hjust = 1.02, size = 1, 
+              aes(x = `Position Specific`, y = 0, label = `Position Specific`),
+              angle = 70) +
+    scale_fill_manual(values = colour_func_gauge_hsr(gaugedata_back)) +
+    gauge_theme()
+  
+  ##Arrange for final output
+  gauge_plots <- cowplot::plot_grid(distplot_for, distplot_back, hsrplot_for, hsrplot_back)
+  
+  girafe(code=print(gauge_plots))
+  }  
+
+})
+```
+
+
+### Daily Load
+
+
+```{r pressure, warning=FALSE, message=FALSE}
+
+renderUI({
+##data manip
+###Filter for an indivudal day
+daily_data <- df_all2 %>%
+  filter(Date == input$date_select)
+
+   options(shiny.error = function() {
+    stop('Sorry, not enough data present for that date, try again')
+  })
+
+  if(nrow(daily_data) < 5){
+    stop ('Sorry, not enough data present for that date, better luck time')
+  } else {
+
+
+daily_data2 <- daily_data %>%
+  mutate(
+    `Forward/Back` = factor(`Forward/Back`, levels = c('Forwards', 'Backs')),
+    `Position Specific` =
+      factor(`Position Specific`,
+             levels = c("Loosehead Prop", "Hooker", 'Tighthead Prop',
+                        'Second Row', 'Back Row', 'Scrum Half', 'Fly Half',
+                        'Centre', 'Wing', 'Full Back'))
+  ) %>% arrange(`Forward/Back`, `Position Specific`)
+
+###Creates group data for table
+counts <- table(daily_data2$`Forward/Back`)
+
+names <- c('Week', 'Date', 'Position', 'Name', 'Distance', 'Moderate Speed Dist', 
+           'High Speed Dist', 'Percent Max Velocity')
+
+###Create and format table
+table_data <- daily_data2 %>%
+  select(-`Forward/Back`) %>%
+  mutate(
+    dist_total = round(dist_total, 0),
+    dist_total = color_bar('lightgreen')(dist_total),
+    msr_total = round(msr_total, 0),
+    msr_total = color_bar('lightblue')(msr_total),
+    hsr_total = round(hsr_total, 0),
+    hsr_total = color_bar('#F1948A')(hsr_total),
+    percentVmax = round(percentVmax, 2),
+    percentVmax = ifelse(percentVmax > .90,
+                         cell_spec(percentVmax, "html", color = "green",
+                                   bold = T),
+                         ifelse(percentVmax < .60,
+                                cell_spec(percentVmax, "html", color = "red", 
+                                          bold = T),
+                                cell_spec(percentVmax, "html", color = "orange", 
+                                          italic = T)))
+  ) %>% select(2, 1, 3:8)
+
+colnames(table_data) <- names
+
+table99 <- table_data %>%
+  kable('html', caption = 'Main Session Loads', booktabs=T, linesep="  ",
+        escape = F, align = c('l','l', 'l', 'l', 'c', 'c', 'c', 'c')) %>%
+  kable_styling(full_width = T, bootstrap_options = 
+                  c('striped', 'hover', 'responsive', 'condensed')) %>%
+  column_spec(1, width = "5cm") %>%
+  column_spec(2, width = "5cm") %>%
+  column_spec(3, width = "5cm") %>%
+  column_spec(4, width = "5cm") %>%
+  column_spec(5, width = "8cm") %>%  
+  column_spec(6, width = "8cm") %>%
+  column_spec(7, width = "8cm") %>%
+  column_spec(8, width = "8cm") %>%
+  group_rows(index = setNames(counts, names(counts)),
+             label_row_css = "background-color: #666; color: #fff;")
+
+HTML(table99)
+
+}
+
+})
+
+
+```
+
+
+### Recent Weekly Loads
+
+```{r }
+
+forward <- weekly_loads %>%
+  filter(`Forward/Back.x` == 'Forwards')
+
+backs <- weekly_loads %>%
+  filter(`Forward/Back.x` == 'Backs')
+
+###Player select icon
+library(shiny)
+selectInput("pos_select_for", label = "Select Forwards Position:",
+            choices = unique(forward$`Position Specific`),
+            selected = "Hooker")
+```
+
+
+
+```{r, fig.width=10, fig.height=6,fig.show='hold',fig.align='center', message=FALSE, warning=FALSE}
+
+plotly::renderPlotly({
+  ##Data manip
+  weekly_loads2 <- weekly_loads %>%
+    select(1:9,11)
+  
+  cbbPalette1 <- c("#999999", "#E69F00", "#56B4E9", 
+                   "#009E73", "#F0E442", "#0072B2")
+  cbbPalette2 <- c("#009E73", "#F0E442", "#0072B2")
+  
+  
+  forward %>%
+    mutate(
+      Distance = round(Distance, 0),
+      week = factor(week)
+    ) %>%  filter( `Position Specific` == input$pos_select_for) %>%
+    ggplot(aes(week, Distance, colour = Distance, shape = `Position Specific`, 
+               text = Name))+
+    geom_point() +
+    ylim(0,25000)+
+    scale_color_gradient2(low = 'blue', mid = 'green', high = 'red') +
+    labs(x ='Week', y = 'Distance (m)',  title = 'Forwards')+
+    bbplot::bbc_style()+
+    theme(
+      legend.text = ggplot2::element_text(size = 10),
+      axis.text.x = element_text(size = 12, angle = 70, colour = 'azure4'),
+      axis.text.y = element_text(size = 12, colour = 'azure4')
+    )
+})
+
+```
+
+
+```{r }
+###Player select icon
+selectInput("pos_select_back", label = "Select Backs Position:",
+            choices = unique(backs$`Position Specific`), 
+            selected = "Wing")
+```
+
+
+```{r, fig.width=10, fig.height=6,fig.show='hold',fig.align='center',  error=FALSE, message=FALSE, warning=FALSE}
+
+
+plotly::renderPlotly({
+  ##Data manip
+  weekly_loads2 <- weekly_loads %>%
+    select(1:9,11)
+  
+  cbbPalette1 <- c("#999999", "#E69F00", "#56B4E9", 
+                   "#009E73", "#F0E442", "#0072B2")
+  cbbPalette2 <- c("#009E73", "#F0E442", "#0072B2")
+  
+  backs %>%
+    mutate(
+      Distance = round(Distance, 0),
+      week = factor(week)
+    ) %>%  filter(`Position Specific` == input$pos_select_back) %>%
+    ggplot(aes(week, Distance, colour = Distance, shape = `Position Specific`, 
+               text = Name))+
+    geom_point() +
+    labs(x ='Week', y ='Distance (m)', title = 'Backs') +
+    scale_color_gradient2(low = 'blue', mid = 'green', high = 'red') +
+    ylim(0,25000)+
+    bbplot::bbc_style()+
+    theme(
+      legend.text = ggplot2::element_text(size = 10),
+      axis.text.x = element_text(size = 12, angle = 70, colour = 'azure4'),
+      axis.text.y = element_text(size = 12, colour = 'azure4')
+    )
+  
+})
+
+```
+
+
+```{r }
+###Week select
+selectInput("week_select", label = "Select Week:",
+            choices = unique(weekly_loads$week),
+            selected = 'Wk 13')
+```
+
+
+```{r pressure2,warning=FALSE, message=FALSE}
+
+###Data manip
+renderUI({
+  ###Data manip
+  weekly_loads3 <- weekly_loads %>%
+    mutate(
+      `Forward/Back.x` = factor(`Forward/Back.x`,
+                                levels = c('Forwards','Backs')),
+      PreviousWeekDist = case_when(is.na(PreviousWeekDist) ~ 0 ,
+                                   T ~ PreviousWeekDist),
+      PreviousWeekMSR  = case_when(is.na(PreviousWeekMSR)  ~ 0 ,
+                                   T ~ PreviousWeekMSR),
+      PreviousWeekHSR  = case_when(is.na(PreviousWeekHSR)  ~ 0 , 
+                                   T ~ PreviousWeekHSR)) %>%
+    arrange(`Forward/Back.x`, `Position Specific`) %>%
+    select(1,3, 11, 2, 4:9)
+  
+  ###grouped data
+  
+  names2 <- c('Week','forward_back', 'Position', 'Name', 'Distance', 
+              'Mod Speed Dist', 'High Speed Dist', 'Prev. Week Dist', 
+              'Prev. Week MSD', 'Prev. Week HSD')
+  
+  
+  ###Create table
+  table_data2 <- weekly_loads3
+  
+  table_data3 <- table_data2 %>%
+    filter(week == input$week_select)
+  
+  week_counts2 <- table(table_data3$`Forward/Back.x`)
+  
+  colnames(table_data3) <- names2
+  
+  test_table <- table_data3 %>%
+    select(-forward_back) %>%
+    mutate(
+      Distance = round(Distance,0),
+      Distance = ifelse(
+        Distance > `Prev. Week Dist` * 1.1,
+        cell_spec(
+          Distance, "html", color = "red", bold = T),
+        ifelse(
+          Distance < `Prev. Week Dist`*0.5,
+          cell_spec(
+            Distance, "html", color = "blue",
+            bold = T),
+          cell_spec(
+            Distance, "html", color = "green",
+            italic = T)
+        )
+      ),
+      `Mod Speed Dist` = ifelse(
+        `Mod Speed Dist` > `Prev. Week MSD` * 1.1,
+        cell_spec(
+          `Mod Speed Dist`, "html", color = "red", bold = T),
+        ifelse(
+          `Mod Speed Dist` < `Prev. Week MSD` * 0.5,
+          cell_spec(
+            `Mod Speed Dist`,
+            "html", color = "blue", bold = T),
+          cell_spec(
+            `Mod Speed Dist`, 
+            "html", color = "green", italic = T)
+        )
+      ),
+      `High Speed Dist` = ifelse(
+        `High Speed Dist` > `Prev. Week HSD`*1.1,
+        cell_spec(
+          `High Speed Dist`, "html", color = "red", bold = T),
+        ifelse(
+          `High Speed Dist` < `Prev. Week HSD` * 0.5,
+          cell_spec(
+            `High Speed Dist`, "html", color = "blue", bold = T),
+          cell_spec(
+            `High Speed Dist`, "html", color = "green", italic = T)))
+    ) %>%
+    kable('html',  booktabs = T, linesep = "  ", escape = F) %>%
+    kable_styling(full_width = T,  bootstrap_options = c('striped', 'hover', 'responsive', 
+                                                         'condensed'))  %>%
+    group_rows(index = setNames(week_counts2, names(week_counts2)),
+               label_row_css = "background-color: #666; color: #fff;")
+  
+  HTML(test_table)
+  
+})
+```
+
+### All GPS Data
+
+```{r, warning=FALSE, message=FALSE, error=FALSE}
+###Datatable sparkline output for all data
+df_all2 %>%
+  group_by(Name) %>% 
+  summarize(Distance = spk_chr(round(dist_total,0),
+                               lineColor = '#0E32E5', 
+                               fillColor = '#94F6F6',
+                               chartRangeMin = 0,
+                               chartRangeMax = 8,
+                               width = 80,
+                               height = 20,
+                               highlightLineColor = 'orange', 
+                               highlightSpotColor = 'orange'),
+            MSR = spk_chr(round(msr_total,0),
+                          lineColor = '#0E32E5', 
+                          fillColor = '#94F6F6',
+                          chartRangeMin = 0,
+                          chartRangeMax = 8,
+                          width = 80,
+                          height = 20,
+                          highlightLineColor = 'orange', 
+                          highlightSpotColor = 'orange'),
+            HSR = spk_chr(round(hsr_total,0),
+                          lineColor = '#0E32E5', 
+                          fillColor = '#94F6F6',
+                          chartRangeMin = 0,
+                          chartRangeMax = 8,
+                          width = 80,
+                          height = 20,
+                          highlightLineColor = 'orange', 
+                          highlightSpotColor = 'orange'),
+            Percent_Velocity = spk_chr(round(percentVmax,2),
+                                       lineColor = '#0E32E5', 
+                                       fillColor = '#94F6F6',
+                                       chartRangeMin = 0,
+                                       chartRangeMax = 1,
+                                       width = 80,
+                                       height = 20,
+                                       highlightLineColor = 'orange', 
+                                       highlightSpotColor = 'orange')) %>% 
+  datatable(escape = F, rownames = F, filter='top',
+            options = list(pageLength=n_distinct(df_all2$Name), autoWidth=TRUE, 
+                           fnDrawCallback = htmlwidgets::JS('function(){HTMLWidgets.staticRender();}'))
+  ) %>% 
+  spk_add_deps()
+
+```
+
+
+
+```{r }
+###Player select icon
+selectInput("p_select", label = "Select Player Name:",
+            choices = unique(df_all2$Name), selected = '04fa3')
+```
+
+
+```{r }
+###Final player plot reactive to above player selection
+ggiraph::renderggiraph({
+  
+  plot2 <- df_all2 %>%
+    mutate(
+      tooltips = paste0(
+        Date, "\nName = ", Name, "\nDistance = ",round(dist_total,0),'m')
+    )%>% 
+    filter(Name == input$p_select) %>%
+    ggplot(aes(Date, dist_total, colour = dist_total)) +
+    ggiraph::geom_point_interactive(
+      width = 0.25, size = 3, alpha = 0.6, aes(
+        tooltip = tooltips,data_id = Name), position =
+        position_jitter(width = 0.3)) +
+    scale_color_gradient2(low = 'blue', mid = 'darkgreen', high = 'red', 
+                          limits = c(0,10000), breaks = c(0,10000,5000)) +
+    bbplot::bbc_style() +
+    labs(colour="Distance (m)") +
+    ylim(0,10000) +
+    scale_x_discrete(expand = c(0,0), drop=FALSE) +
+    theme(
+      legend.text = element_text(size = 10, colour = 'azure4'),
+      axis.text.x = element_text(size = 12, angle = 70, colour = 'azure4')
+    )
+  ggi <- girafe(print(plot2))
+  
+  tooltip_css <- "background-color:grey;font-style:italic;font-colour:transparent;"
+  
+  girafe_options(ggi, opts_tooltip(offx = -60, offy = -120, css = tooltip_css), opts_hover(css="fill:#000000;"))
+  
+})
+```
+
