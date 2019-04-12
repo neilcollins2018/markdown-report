@@ -1,0 +1,353 @@
+---
+title: "Report Data Using Visuals"
+author: "SportSciData"
+date: "08/04/2019"
+output: 
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(htmlwidgets)
+library(plotly)
+library(ggiraph)
+library(gridExtra)
+library(RColorBrewer)
+library(dygraphs)
+library(xts)
+library(lubridate)
+
+knitr::opts_chunk$set(echo = TRUE)
+gps_data <- readr::read_csv('trial_data.csv')
+
+```
+
+# ggplot2
+
+```{r cars, warning=FALSE, message=FALSE, fig.height = 7, fig.width = 12}
+
+td_plot <- gps_data %>% 
+  filter(Date == '2018-02-17') %>% 
+  mutate(
+    Name = forcats::fct_reorder( Name, dist_total, desc=T)
+  ) %>%
+  ggplot(aes(Name, dist_total, fill = `Position Specific`, 
+             label = paste0(round(dist_total, 0),"m"))) +
+  geom_col() +
+  coord_flip() +
+  geom_text(hjust=1) +
+  bbplot::bbc_style() +
+  labs(y = "Total Distance", x = 'Player Name', 
+       title = 'Total Distance Covered', type='Garamond') +
+  theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_text(size=14),
+    axis.ticks.x = element_blank(),
+    legend.justification=c(1,0), 
+    legend.position=c(1,0),
+    legend.text = ggplot2::element_text(size=8,
+                                        color="#222222"))
+
+hsr_plot <- gps_data %>% 
+  filter(Date == '2018-02-17') %>% 
+  mutate(
+    Name = forcats::fct_reorder( Name, dist_total, desc=T)
+  ) %>%
+  ggplot(aes(Name, hsr_total, fill=`Position Specific`, label=
+               paste0(round(hsr_total, 0),"m"))) +
+  geom_col() +
+  coord_flip() +
+  geom_text(hjust=1) +
+  bbplot::bbc_style() +
+  labs(y = "High Speed Distance", x = 'Player Name', 
+       title = 'High Speed Distance Covered', type='Garamond') +
+  theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks = element_blank(),
+    legend.position = "none"
+  )
+
+
+cowplot::plot_grid(td_plot, hsr_plot)
+
+
+
+```
+
+# ggiraph
+
+You can also embed plots, for example:
+
+```{r , warning=FALSE, message=FALSE, fig.height = 10, fig.width = 18}
+td_plot <- gps_data %>% 
+  filter(Date == '2018-02-17') %>% 
+  mutate(
+    Name = forcats::fct_reorder( Name, dist_total, desc=T),
+    tooltip = paste0(Name, "\n",`Position Specific`, "\n", round(hsr_total, 0),"m")
+  ) %>%
+  ggplot(aes(Name, dist_total, fill = `Position Specific`, 
+             label = paste0(round(dist_total, 0),"m"))) +
+  ggiraph::geom_bar_interactive(aes(y=dist_total, fill=`Position Specific`, 
+                                    tooltip=tooltip),stat = 'identity') +
+  coord_flip() +
+  geom_text(hjust=1, size=2) +
+  bbplot::bbc_style() +
+  labs(y = "Total Distance", x = 'Player Name', 
+       fill='Position', title = 'Total Distance Covered', type='Garamond') +
+  theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_text(size=14),
+    axis.ticks.x = element_blank(),
+    legend.text = ggplot2::element_text(size=4,
+                                        color="#222222"),
+    legend.justification=c(1,0), 
+    legend.position=c(1,0),
+    legend.spacing.x = unit(0.06, 'cm'),
+    plot.title = element_text(size=10))
+
+hsr_plot <- gps_data %>% 
+  filter(Date == '2018-02-17') %>% 
+  mutate(
+    Name = forcats::fct_reorder( Name, dist_total, desc=T),
+    tooltip = paste0(Name, "\n",`Position Specific`, "\n", 
+                     round(hsr_total, 0),"m")
+  ) %>%
+  ggplot(aes(Name, hsr_total, , label=
+               paste0(round(hsr_total, 0),"m"))) +
+  ggiraph::geom_bar_interactive(aes(y=hsr_total, fill=`Position Specific`,
+                                    tooltip=tooltip),stat = 'identity') +
+  coord_flip() +
+  geom_text(hjust=1, size=2) +
+  bbplot::bbc_style() +
+  labs(y = "High Speed Distance", x = 'Player Name', 
+       fill='Position', title = 'High Speed Distance Covered', type='Garamond') +
+  theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks = element_blank(),
+    legend.position = "none",
+    plot.title = element_text(size=10)
+  )
+
+ggiraph_plots <- cowplot::plot_grid(td_plot, hsr_plot)
+
+ggiraph::girafe(code=print(ggiraph_plots))
+
+```
+
+# Plotly
+
+```{r , warning=FALSE, message=FALSE, fig.height = 7, fig.width = 10}
+td_plot <- gps_data %>% 
+  filter(Date == '2018-02-17') %>% 
+  mutate(
+    Name = forcats::fct_reorder( Name, dist_total, desc=T)
+  ) %>%
+  ggplot(aes(Name, dist_total, fill = `Position Specific`, 
+             label = paste0(round(dist_total, 0),"m")))+
+  geom_col() +
+  coord_flip() +
+  geom_text(hjust=1) +
+  bbplot::bbc_style() +
+  theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_text(size=14),
+    axis.ticks.x = element_blank(),
+    legend.justification=c(1,0), 
+    legend.position=c(1,0))
+
+td_plot <- plotly::ggplotly(td_plot)
+
+hsr_plot <- gps_data %>% 
+  filter(Date == '2018-02-17') %>% 
+  mutate(
+    Name = forcats::fct_reorder(Name, dist_total, desc=T)
+  ) %>%
+  ggplot(aes(Name, hsr_total, fill=`Position Specific`,
+             label = paste0(round(hsr_total, 0),"m")))+
+  geom_col() +
+  coord_flip() +
+  geom_text(hjust=1) +
+  bbplot::bbc_style() +
+  theme(
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.x = element_blank())
+
+hsr_plot <- plotly::ggplotly(hsr_plot)
+
+subplot(style(td_plot,hoverinfo=c('y+x')), 
+        style(hsr_plot, hoverinfo=c('y+x'))) %>%
+  layout(title="Comparison of Total Distance to High Speed Running", 
+         titlefont=10, showlegend=TRUE, legend = list(font = list(size = 8)))
+
+```
+
+
+# Dygraphs
+
+```{r , warning=FALSE, message=FALSE, fig.height = 7, fig.width = 10}
+
+ts_data <- gps_data %>%
+  filter(Name == '04fa3')%>%
+  select(Date, dist_total, hsr_total)
+
+names <- c('Date', 'Total Distance', 'High Speed Distance')
+colnames(ts_data) <- names
+
+gps_ts <- xts(x = ts_data,
+              order.by = ts_data$Date)
+dygraph(gps_ts, main = 'Seasonal Total Distance and High Speed Distance Data') %>% 
+  dyRangeSelector(dateWindow = c(max(ts_data$Date)-30, max(ts_data$Date))) %>%
+  dyAxis("y", label = "Meters", valueRange = c(0, 10000)) %>%
+  dyHighlight(highlightCircleSize = 4, 
+              highlightSeriesBackgroundAlpha = 0.5,
+              hideOnMouseOut = TRUE) %>%
+  dyLegend(show = "follow") %>%
+  dyOptions(drawPoints = TRUE, pointSize = 2) %>%
+  dyAxis("x", drawGrid = FALSE) %>%
+  dySeries("High Speed Distance", fillGraph = TRUE, color = "red")
+
+```
+
+
+```{r,  warning=FALSE, message=FALSE}
+source("https://raw.githubusercontent.com/iascchen/VisHealth/master/R/calendarHeat.R")
+
+ts_data <- gps_data %>%
+  filter(Name == '04fa3')%>%
+  select(Date, dist_total, hsr_total)
+
+calendarHeat(ts_data$Date, ts_data$dist_total, color = "g2r")
+
+
+
+```
+
+
+### https://margintale.blogspot.com/2018/01/ggplot2-time-series-heatmaps-revisited.html
+
+```{r ,  warning=FALSE, message=FALSE}
+
+ts_data <- gps_data %>%
+  filter(Name == '04fa3')%>%
+  select(Date, dist_total, hsr_total)
+
+
+xts_heatmap <- function(x = datetime, y = value){
+  gg <-  data.frame(Date = ymd(x), y) %>%
+    setNames(c("Date","Value")) %>%
+    arrange(Date) %>%
+    mutate(
+      Year = year(Date),
+      Month = month(Date),
+      tooltips = paste0(Date, '\n',round(Value, 0),"m"),
+      # I use factors here to get plot ordering in the right order
+      # without worrying about locale
+      MonthTag = factor(Month,levels = as.character(1:12),
+                        labels = c("Jan","Feb","Mar","Apr","May","Jun",
+                                   "Jul","Aug","Sep","Oct","Nov","Dec"),
+                        ordered=TRUE),
+      # week start on Monday in my world
+      Wday = wday(Date,week_start=1),
+      # the rev reverse here is just for the plotting order
+      WdayTag = factor(Wday,levels = rev(1:7),
+                       labels = 
+                         rev(c("Mon","Tue","Wed","Thu","Fri","Sat","Sun")),
+                       ordered=TRUE),
+      Week = as.numeric(format(Date,"%W"))
+    ) %>%
+    # ok here we group by year and month and then calculate the week of the month 
+    # we are currently in
+    group_by(Year,Month) %>% 
+    mutate(Wmonth = 1 + Week - min(Week)) %>% 
+    ungroup() %>% 
+    ggplot(aes(x = Wmonth, y= WdayTag, fill = Value)) + 
+    geom_tile_interactive(colour = "white", aes(tooltip=tooltips)) + 
+    facet_grid(Year ~ MonthTag) + 
+    scale_fill_gradient2(low = "blue", mid = 'green', high = "red", 
+                         midpoint = 5000) +
+    labs(y = NULL) +
+    geom_vline(xintercept = 0, colour = 'grey')+
+    guides(fill = guide_colourbar(barwidth = 20, barheight = 0.5))+
+    bbplot::bbc_style() +
+    labs(title = "Heatmap of Total Distance") +
+    theme(
+      axis.text.y = element_text(size=14),
+      axis.text.x = element_blank(),
+      strip.text.x = element_text(size=13)
+      
+    )
+  
+  girafe(code=print(gg))
+}
+
+
+# lets see
+xts_heatmap(ts_data$Date, ts_data$dist_total)
+
+````
+
+### https://blog.revolutionanalytics.com/2009/11/charting-time-series-as-calendar-heat-maps-in-r.html
+
+
+```{r,  warning=FALSE, message=FALSE}
+
+library(ggiraph)
+library(lubridate)
+
+ts_data <- gps_data %>%
+  filter(Name == '04fa3') %>%
+  select(Date,  percentVmax) %>%
+  mutate(
+    dow = wday(Date,label=TRUE, week_start = 1),
+    dow = factor(dow, levels = rev(levels(dow))),
+    week = week(Date),
+    weeks = format(Date, "%W"),
+    weeks = factor(weeks, levels = unique(weeks)),
+    weekStart = Date - as.POSIXlt(Date)$wday,
+    month = month(Date, label = TRUE),
+    year = year(Date),
+    tooltips = paste0(Date, "\n", 'Percent Max Velocity ', scales::percent(percentVmax))
+  )
+
+values <- colorRampPalette(c('green', 'lightgreen', 'orange', 'red')) (nlevels(
+  factor(ts_data$percentVmax)))
+
+x2 <- ggplot(ts_data,aes(weekStart,dow,fill=factor(percentVmax))) +
+  geom_tile_interactive(colour = "white", 
+                        aes(tooltip=tooltips,
+                            data_id=as.character(Date)), size=.1) + 
+  scale_fill_manual(values = rev(values)) +
+  scale_x_date(date_breaks = "1 week",date_labels="%d-%b") +
+  bbplot::bbc_style()+
+  ggExtra::removeGrid() + 
+  ggExtra::rotateTextX() +
+  ggtitle("Percent Max Velocity per Day", 
+          subtitle = 'Red ->> Low, Orange ->> OK, Green ->> Good') +
+  labs(x="Week Beginning", y=NULL) +
+  facet_wrap(year~month, scales = 'free_x') +
+  theme(
+    plot.title = element_text(hjust = 0, size=14), 
+    plot.subtitle = element_text(size = 10),
+    strip.text = element_text(size=5),
+    axis.ticks = element_blank(), 
+    axis.text.y = element_text(size = 4), 
+    axis.text.x = element_text(size=5, angle = 70), 
+    legend.position = "none")
+
+x3 <- girafe(code=print(x2))
+
+tooltip_css <- "padding:10px;border-radius:10px 20px 10px 20px;"
+
+girafe_options(x3, 
+               opts_tooltip(offx = -60, 
+                            offy = -120, use_fill = TRUE,
+                            css=tooltip_css),
+               opts_hover(css = "fill:#228B22;"),
+               opts_zoom(max = 5))
+
+
+```
