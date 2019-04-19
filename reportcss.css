@@ -1,0 +1,46 @@
+#jqstooltip {
+background-color:#6495ED;
+color: #8B4513 ;
+height:24px;
+border-radius:10px 20px 10px 20px
+
+}
+
+body{
+background-color:#ECF0F1;  
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Open Sans', sans-serif;
+}
+
+p, ul, li, a {
+    font-family: 'Lora', serif;
+}
+
+#section-header{
+  background-image:linear-gradient(rgba(255,255,255,0.5), rgba(255,255,255,0.5)),url(image.jpg); 
+  border-radius:10px 10px 10px 10px;
+  position: relative;
+}
+
+a {
+    color: #85C1E9;
+    cursor: pointer;
+    font-weight: 600;
+    text-decoration: none;
+    display: inline;
+    padding-bottom: 2px;
+    transition: all 0.45s linear;
+    background: linear-gradient(
+      to bottom,
+      rgba(#ff9900, 1) 0%,
+      rgba(#ff9900, 1) 98%
+    );
+    background-size: 0px 2px;
+    background-repeat: no-repeat;
+    background-position: left 100%;
+}
+a:hover {
+          background-size: 100% 2px;
+      }
