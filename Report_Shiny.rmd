@@ -1,0 +1,328 @@
+---
+title: "Shiny Report Demo"
+author: "SportSciData"
+date: "15/04/2019"
+output: 
+  html_document:
+    toc: true
+runtime: shiny
+css: reportcss.css
+---
+
+Don't forget to check Parts [I](https://www.sportscidata.com/2019/04/04/how-to-create-interactive-reports-with-r-markdown-part-i/) and [II](https://www.sportscidata.com/2019/04/12/using-data-visualisation-in-r-markdown/) of the R Markdown series where we covered producing *tables of data* first and then *data visualisation*
+
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(plotly)
+library(ggiraph)
+library(dygraphs)
+library(lubridate)
+library(shiny)
+library(formattable)
+library(kableExtra)
+library(magrittr)
+library(DT)
+library(sparkline)
+library(colormap)
+
+
+knitr::opts_chunk$set(echo = TRUE)
+gps_data <- readr::read_csv('trial_data.csv')
+hdsts <- list.files(path="headshots", pattern = ".png", full.names = TRUE,
+                    all.files = TRUE)
+
+spk_tool <- function(labels) {
+  htmlwidgets::JS(
+    sprintf(
+      "function(sparkline, options, field){
+  return %s[field[0].offset];
+}",
+jsonlite::toJSON(labels)
+    )
+  )
+}
+
+
+```
+
+-------------------------
+
+# Name & Date Range Selection
+
+```{r cars, echo=FALSE}
+
+selectInput('name_select', 
+            label = 'Select Name', 
+            choices = unique(gps_data$Name))
+
+dateRangeInput('date_select2', 
+               label = 'Select Date Range', 
+               start = max(gps_data$Date)-days(60),
+               end = max(gps_data$Date)-days(30),
+               min = min(gps_data$Date),
+               max = max(gps_data$Date),
+               weekstart = 1)
+
+```
+
+## [Kable](https://cran.r-project.org/web/packages/kableExtra/vignettes/awesome_table_in_html.html) based table produced from selections above
+
+```{r, echo=FALSE}
+
+renderUI({
+  
+  gps_data %>%
+    select(Date, Name, dist_total, msr_total, hsr_total, percentVmax) %>%
+    filter(Date >= input$date_select2[1] & Date <= input$date_select2[2]  & 
+             Name == input$name_select) %>%
+    arrange(desc(Date)) %>%
+    mutate(dist_total =  round(dist_total, 0), msr_total = round(msr_total, 0),
+           hsr_total = round(hsr_total, 0),percentVmax = round(percentVmax, 2)) %>%
+    mutate(dist_total = cell_spec(dist_total, "html", 
+                                  color = ifelse(dist_total > 4000, "red", "blue")),
+           msr_total = ifelse(msr_total > 1000,
+                              cell_spec(msr_total, "html", color = "red", bold = T),
+                              ifelse(msr_total < 400,
+                                     cell_spec(msr_total,"html", color = "blue", bold = T),
+                                     cell_spec(msr_total, "html", color = "green", italic = T))),
+           percentVmax = cell_spec(percentVmax, bold = T, color = spec_color(percentVmax, end = 0.9),
+                                   font_size = spec_font_size(percentVmax))) %>%
+    kable(escape=FALSE, caption = 'Session Loads', 
+          align = c('l','l', 'l', 'l', 'l', 'c', 'c', 'c','c')) %>%
+    kable_styling( bootstrap_options = c('striped', 'hover', 'responsive', 
+                                         'condensed')) %>%
+    column_spec(1, width = '5cm', border_right = TRUE, bold = TRUE, background = "grey") %>%
+    HTML()
+  
+  
+})
+```
+
+---
+
+## [Plotly](https://plot.ly/r/) plot based on name selected above
+
+```{r, echo=FALSE}
+
+renderPlotly({
+  
+  plot_title <- input$name_select
+  
+  p <- gps_data %>%
+    select(Date, Name, dist_total, msr_total, hsr_total) %>%
+    filter(Date >= input$date_select2[1] & Date <= input$date_select2[2]  & 
+             Name == input$name_select) %>%
+    arrange(desc(Date)) %>%
+    mutate(
+      Distance = round(dist_total, 0),
+      Date = factor(Date)
+    ) %>% gather(metric, value, -Date, -Name) %>%
+    mutate(
+      metric=factor(metric, levels = c('dist_total', 'msr_total', 'hsr_total'),
+                    labels = c('Total Distance', 'Moderate Speed Distance',
+                               'High Speed Distance'))
+    ) %>% filter(complete.cases(.)) %>%
+    ggplot(aes(Date, value, colour = value, shape=metric, 
+               text=paste0(Date, '\n', metric, ": ", round(value,0), 'm')))+
+    geom_point() +
+    labs(title = plot_title)+
+    labs(x ='Date', y ='Distance (m)') +
+    scale_color_gradient2(low = 'blue', mid = 'green', high = 'red') +
+    ylim(0,10000)+
+    bbplot::bbc_style()+
+    theme(
+      legend.text = ggplot2::element_text(size = 10),
+      axis.text.x = element_text(size = 12, angle = 70, colour = 'azure4'),
+      axis.text.y = element_text(size = 12, colour = 'azure4')
+    )
+  
+  ggplotly(p, tooltip = 'text') %>% layout(hovermode = 'compare')
+  
+})
+```
+
+---
+
+# Date Selection
+
+```{r cars2, echo=FALSE}
+
+df_date <- enframe(seq.Date(min(gps_data$Date), max(gps_data$Date), by=1)) %>%
+  anti_join(gps_data, by=c('value'='Date'))
+
+dateInput('date_select', 
+          label = 'Select Date', 
+          value = "2018-05-01",
+          min = min(gps_data$Date),
+          max = max(gps_data$Date),
+          weekstart = 1,
+          datesdisabled = df_date$value)
+
+
+```
+
+## [Formattable](https://renkun-ken.github.io/formattable/) and [Kable](https://cran.r-project.org/web/packages/kableExtra/vignettes/awesome_table_in_html.html) based table based off date selection
+
+```{r, echo=FALSE}
+
+renderUI({
+  
+  data2 <-  gps_data %>%
+    select(Date,week,`Forward/Back`, `Position Specific`, Name, dist_total, msr_total, hsr_total, percentVmax) %>%
+    filter(Date == input$date_select) %>%
+    mutate(`Forward/Back` = factor(`Forward/Back`, levels = c('Forwards', 'Backs')),
+           `Position Specific` = factor(`Position Specific`, levels = c(
+             'Tighthead Prop', 'Hooker', 'Loosehead Prop', 'Second Row', 'Back Row',
+             'Scrum Half','Fly Half', 'Centre', 'Wing', 'Full Back')
+           )) %>% arrange(`Forward/Back`, `Position Specific`)
+  
+  pos_groups <- table(data2$`Forward/Back`)
+  
+  data2 %>%
+    select(-`Forward/Back`) %>%
+    mutate(
+      dist_total =  round(dist_total, 0), 
+      msr_total = round(msr_total, 0),
+      hsr_total = round(hsr_total, 0),
+      percentVmax = round(percentVmax, 2),
+      hsr_total = ifelse(hsr_total > 150,
+                         cell_spec(hsr_total, "html", color = "red", bold = T),
+                         ifelse(hsr_total < 50,
+                                cell_spec(hsr_total,"html", color = "blue", bold = T),
+                                cell_spec(hsr_total, "html", color = "green", italic = T))),
+      percentVmax = cell_spec(percentVmax, bold = T, color = spec_color(percentVmax, end = 0.9),
+                              font_size = spec_font_size(percentVmax)),
+      `dist_total` = color_bar("#FA614B")(dist_total),
+      msr_total = color_tile("#DeF7E9", "#71CA97")(msr_total)) %>%
+    kable('html',  caption = 'Session Loads', escape=FALSE, 
+          align = c(rep('l', 5), rep('c', 4)), 
+          col.names = c('Date', 'Week','Position', 'Name','Total Distance',
+                        'Mod Speed Dist', 'High Speed Dist', 'Percent Max Vel')) %>%
+    kable_styling( bootstrap_options = c('striped', 'hover', 'responsive', 'condensed')) %>%
+    pack_rows(index = setNames(pos_groups, names(pos_groups)),
+              label_row_css = "background-color: #666; color: #fff;") %>%
+    HTML()
+  
+  
+})
+
+
+```
+
+## [ggiraph](https://github.com/cardiomoon/ggiraphExtra/tree/master/R) based off date selection 
+
+```{r, echo=FALSE}
+
+renderggiraph({
+  
+  td_plot <- gps_data %>% 
+    filter(Date ==  input$date_select) %>% 
+    mutate(Name = forcats::fct_reorder( Name, dist_total, desc=T),
+      tooltip = paste0(Name, "\n",`Position Specific`, "\n", round(dist_total, 0),"m")) %>%
+    ggplot(aes(Name, dist_total, fill = `Position Specific`, 
+               label = paste0(round(dist_total, 0),"m"))) +
+    ggiraph::geom_bar_interactive(aes(y=dist_total, fill=`Position Specific`, 
+                                      tooltip=tooltip),stat = 'identity') +
+    coord_flip() + geom_text(hjust=1, size=2) + bbplot::bbc_style() +
+    labs(y = "Total Distance", x = 'Player Name', 
+         fill='Position', title = 'Total Distance Covered', type='Garamond') +
+    theme(axis.text.x = element_blank(),axis.text.y = element_text(size=12),
+      axis.ticks.x = element_blank(),
+      legend.text = element_text(size=4.5, color="#222222"),
+      legend.justification=c(1,0), 
+      legend.position=c(1,0),
+      legend.spacing.x = unit(0.06, 'cm'),
+      plot.title = element_text(size=10))
+  hsr_plot <- gps_data %>% 
+    filter(Date ==  input$date_select) %>% 
+    mutate(Name = forcats::fct_reorder( Name, dist_total, desc=T),
+      tooltip = paste0(Name, "\n",`Position Specific`, "\n", round(hsr_total, 0),"m")) %>%
+    ggplot(aes(Name, hsr_total, , label= paste0(round(hsr_total, 0),"m"))) +
+    ggiraph::geom_bar_interactive(aes(y=hsr_total, fill=`Position Specific`,
+                                      tooltip=tooltip),stat = 'identity') +
+    coord_flip() +geom_text(hjust=1, size=2) +bbplot::bbc_style() +
+    labs(y = "High Speed Distance", x = 'Player Name', 
+         fill='Position', title = 'High Speed Distance Covered', type='Garamond') +
+    theme( axis.text.x = element_blank(),axis.text.y = element_blank(),
+      axis.ticks = element_blank(),
+      legend.position = "none",
+      plot.title = element_text(size=10))
+  ggiraph_plots <- cowplot::plot_grid(td_plot, hsr_plot)
+  
+  plots2 <- ggiraph::girafe(code=print(ggiraph_plots))
+  tooltip_css <- "padding:10px;border-radius:10px 20px 10px 20px;"
+  girafe_options(plots2, opts_tooltip(offx = -60, offy = -120, use_fill = TRUE,
+                              css=tooltip_css),opts_zoom(max = 5))
+})
+
+```
+
+---
+
+
+# Date slider input
+
+```{r echo=FALSE}
+
+sliderInput('date_select3', 
+            label = 'Select Date Range', 
+            max  = max(gps_data$Date),
+            min = min(gps_data$Date),
+            timeFormat = '%F',
+            value = c( max(gps_data$Date)-days(60), max(gps_data$Date)),
+            step = days(1))
+
+selectInput('pos_select', 
+            label = 'Select Position', 
+            choices = unique(gps_data$`Position Specific`),
+            multiple = TRUE,
+            selected = 'Hooker')
+
+
+```
+
+## [DT](https://rstudio.github.io/DT/) plus [sparklines](https://github.com/htmlwidgets/sparkline) colour coded by value based off date slider and positional input *with CSS to design tooltip*
+
+```{r, echo=FALSE}
+renderDT({
+  gps_data %>%
+    filter(Date >= input$date_select3[1] & Date <= input$date_select3[2] &
+             `Position Specific` %in% input$pos_select) %>%
+    group_by(Name) %>% 
+    arrange(Date) %>%
+    summarize(
+      Distance = spk_chr(
+        round(dist_total,0),
+        type='bar',
+        width = 120,
+        height = 35),
+      MSR = spk_chr(
+        round(msr_total,0),
+        type='bar',
+        width = 160,
+        height = 40),
+      HSR = spk_chr(
+        round(hsr_total,0),
+        type='bar',
+        width = 160,
+        height = 40),
+      Percent_Velocity = sparkline::spk_chr(
+        round(percentVmax,2),
+        type='bar',
+        width = 160,
+        height = 40)
+    ) %>%
+    DT::datatable(escape = F, rownames = F,  
+                  options = list(
+                    pageLength = n_distinct(gps_data$Name), 
+                    fnDrawCallback = 
+                      htmlwidgets::
+                      JS('function(){HTMLWidgets.staticRender();}'))) %>% 
+    spk_add_deps()
+  
+})
+
+```
+
+
