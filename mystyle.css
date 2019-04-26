@@ -1,0 +1,82 @@
+#jqstooltip {
+background-color:#6495ED;
+color: #8B4513 ;
+height:24px;
+border-radius:10px 20px 10px 20px
+
+}
+
+#downloadFile{
+    float: right;
+}
+
+body{
+background-color:#ECF0F1;  
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: 'Open Sans', sans-serif;
+}
+
+p, ul, li, a {
+    font-family: 'Lora', serif;
+}
+
+hr {
+  fill:black;
+}
+
+a {
+    color: #85C1E9;
+    cursor: pointer;
+    font-weight: 600;
+    text-decoration: none;
+    display: inline;
+    padding-bottom: 2px;
+    transition: all 0.45s linear;
+    background: linear-gradient(
+      to bottom,
+      rgba(#ff9900, 1) 0%,
+      rgba(#ff9900, 1) 98%
+    );
+    background-size: 0px 2px;
+    background-repeat: no-repeat;
+    background-position: left 100%;
+}
+a:hover {
+          background-size: 100% 2px;
+      }
+      
+iframe {
+margin-top: 20px;
+margin-bottom: 30px;
+-moz-border-radius: 12px;
+-webkit-border-radius: 12px;
+border-radius:10px 20px 10px 20px;
+-moz-box-shadow: 4px 4px 14px #000;
+-webkit-box-shadow: 4px 4px 14px #000;
+box-shadow: 4px 4px 14px #000;
+background-color:#ECF0F1;  
+
+}
+
+iframe.body{
+  background-color:#ECF0F1;  
+}
+       
+.body, .container-fluid{
+  background-color:#ECF0F1;  
+}      
+
+#section-header{
+  background-image:linear-gradient(rgba(255,255,255,0.5), rgba(255,255,255,0.5)),url(image.jpg);
+  border-radius:10px 10px 10px 10px;
+  position: relative;
+  
+    /* Create the parallax scrolling effect */
+  background-attachment: fixed;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
+
+}
