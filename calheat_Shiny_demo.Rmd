@@ -1,0 +1,306 @@
+---
+title: "Shiny Calendar Heatmap Demo"
+author: "SportSciData"
+date: "15/04/2019"
+output: html_document
+runtime: shiny
+css: mystyle.css
+---
+Don't forget to check Parts [I](https://www.sportscidata.com/2019/04/04/how-to-create-interactive-reports-with-r-markdown-part-i/), [II](https://www.sportscidata.com/2019/04/12/using-data-visualisation-in-r-markdown/) and [III](https://www.sportscidata.com/2019/04/19/how-to-create-interactive-reports-in-r-markdown-shiny-reactive-elements/) of the R Markdown series where we covered producing *tables of data, data visualisation and most recently, how to add reactive elements to your report!*
+
+Below you will see a reactive calendar heatmap which produces a table underneath based on on the date selected from the calendar. Different metrics, players and date ranges are availalble to choose from. 
+
+***
+
+# Calendar Heatmap & Reactive Table
+The calendar was produced using [ggiraph](https://davidgohel.github.io/ggiraph/articles/offcran/using_ggiraph.html) and is based off post from [John Mackintosh](https://www.johnmackintosh.com/2016-11-27-calendar-heatmaps/). The table is a combination of [Kable](https://cran.r-project.org/web/packages/kableExtra/vignettes/awesome_table_in_html.html) and [formatTable](https://renkun-ken.github.io/formattable/). 
+
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(htmlwidgets)
+library(plotly)
+library(ggiraph)
+library(gridExtra)
+library(RColorBrewer)
+library(dygraphs)
+library(xts)
+library(lubridate)
+library(shiny)
+library(formattable)
+library(kableExtra)
+library(magrittr)
+library(shinycssloaders)
+library(shinyjs)
+library(shinyalert)
+
+gps_data <- readr::read_csv('trial_data.csv')
+
+df2 <- gps_data %>%
+  select(Date, Name, dist_total, msr_total, hsr_total, percentVmax) %>%
+  gather(metric, value, -Name, -Date) %>%
+  mutate(
+    metric = factor(metric, levels = c('dist_total', 'msr_total', 'hsr_total',
+                                       'percentVmax'),
+                    labels = c('Total Distance', 'Moderate Speed Distance', 'High Speed Distance',
+                               'Percentage of Max Velocity'))
+  )
+
+
+tooltips_func <- function(metric){
+  
+  if_else(metric == 'Percentage of Max Velocity',
+         paste0(df2$Date, "\n", 'Percent Max Velocity ', round(df2$value*100, 2), "%"),
+         paste0(df2$Date, "\n", 'Distance ', round(df2$value , 0), 'm')
+  )
+}
+
+ts_data2 <- df2 %>%
+  mutate(
+    Date = anytime::anydate(Date),
+    dow = wday(Date,label=TRUE, week_start = 1),
+    dow = factor(dow, levels = rev(levels(dow))),
+    week = week(Date),
+    weeks = format(Date, "%W"),
+    weeks = factor(weeks, levels = unique(weeks)),
+    weekStart = Date - as.POSIXlt(Date)$wday,
+    month = month(Date, label = TRUE, abbr = FALSE),
+    month = factor(month, levels = c(
+      'January', 
+      'February', 
+      'March', 
+      'April', 
+      'May', 
+      'June', 
+      'July', 
+      'August', 
+      'September', 
+      'October', 
+      'November', 
+      'December'
+    )),
+    year = year(Date),
+    year = factor(year),
+    yearmonth = paste(month, year),
+    tooltips = tooltips_func(metric)
+  ) %>% arrange(year, month) %>%
+  mutate(yearmonth = factor(yearmonth, levels = unique(yearmonth)))
+
+
+tooltips_colour_func2 <- function(df, ...){
+  
+  td_scale <-  colorRampPalette(c('#08B3E5', '#2AF598', '#00FF3E', 'orange', 'red')) (nlevels(
+    factor(df$value)))
+  
+  vmax_scale <- colorRampPalette(c('red', 'orange', 'lightgreen', 'darkgreen')) (nlevels(
+    factor(df$value)))
+  
+  if_else(df$metric == 'Percentage of Max Velocity', vmax_scale, td_scale)
+}  
+
+title_func <- function(df){ ###Sorted
+  
+  title_td <- expression(paste(bold('Total Distance '), ' Covered Per Day'))
+  title_msr <- expression(paste(bold('Moderate Speed Distance '), ' Covered Per Day'))
+  title_hsr <- expression(paste(bold('High Speed Distance '), ' Covered Per Day'))
+  title_vmax <- expression(paste(bold('Percent Max Velocity '), ' Achieved Per Day'))
+  
+  if_else(df$metric == 'Total Distance',
+         title_td,
+         if_else(df$metric == 'Moderate Speed Distance',
+                title_msr,
+                if_else(df$metric == 'High Speed Distance',
+                       title_hsr,
+                       title_vmax)))
+}
+
+
+subtitle_func <- function(df){
+  
+  sub_dist <-  paste0('Blue ->> Low, Green ->> OK, Orange ->> Warning, Red ->> High\n','Athlete Name: ', df$Name)
+  sub_vel <-  paste0('Red ->> Low, Orange ->> OK, Green ->> Good\n' , 'Athlete Name: ', df$Name)
+  
+  if_else(df$metric == 'Percentage of Max Velocity',
+         sub_vel,
+         sub_dist)
+}
+
+
+appCSS <- "
+#loading-content {
+  position: absolute;
+  background: #000000;
+  opacity: 0.9;
+  z-index: 100;
+  left: 0;
+  right: 0;
+  height: 100%;
+  text-align: center;
+  color: #FFFFFF;
+}
+"
+
+```
+
+
+```{r, echo=FALSE}
+
+
+shinyApp(
+  
+  ui = fluidPage(
+    
+    useShinyjs(),
+    useShinyalert(),
+    inlineCSS(appCSS),
+    
+    div(
+      id = "loading-content",
+      h2("Loading...")
+    ),
+    
+    dateRangeInput('date_select2', label = 'Select Date Range', 
+                   start = min(ts_data2$Date),
+                   end = max(ts_data2$Date),
+                   min = min(ts_data2$Date),
+                   max = max(ts_data2$Date),
+                   weekstart = 1
+    ),
+    
+    selectInput('name_select', 
+                label = 'Select Name', 
+                choices = unique(df2$Name)
+    ),
+    
+    selectInput('metric_select', 
+                label = 'Select Metric Name', 
+                choices = unique(df2$metric),
+                selected = 'Total Distance'
+    ),
+    
+    ggiraphOutput("calHeat") %>% withSpinner(color="#0dc5c1"),
+    downloadButton('downloadFile', 'Download', class='dlbutton'),
+    shiny::htmlOutput('dt') %>% withSpinner(color="#0dc5c1")
+    
+    
+  ),
+  
+  server = function(input, output, session){
+    
+    shinyalert(
+      title = "Hello",
+      text = "This is to show annoying popups are possible here!",
+      type = "success",
+      confirmButtonText = "OK",
+    )
+    
+    
+    output$calHeat = renderggiraph({
+      
+      ts_data3 <- ts_data2 %>%
+        filter(Date >= input$date_select2[1] & Date <= input$date_select2[2]  & 
+                 Name == input$name_select & metric == input$metric_select)
+      
+      x2 <- ts_data3 %>%
+        ggplot(aes(weekStart, dow, fill = factor(value))) +
+        geom_tile_interactive(colour = "white", 
+                              aes(tooltip = tooltips,
+                                  data_id = as.character(Date)), size = .1) + 
+        scale_fill_manual(values = 
+                            tooltips_colour_func2(ts_data3)) +
+        scale_x_date(date_breaks = "1 week",date_labels="%d-%b") +
+        bbplot::bbc_style()+
+        ggExtra::removeGrid() + 
+        ggtitle(title_func(ts_data3),
+                subtitle = subtitle_func(ts_data3)) +
+        labs(x = "Week Beginning", y = NULL) +
+        facet_wrap(~ yearmonth, scales = 'free_x') +
+        theme(
+          plot.title = element_text(hjust = 0, size = 14), 
+          plot.subtitle = element_text(size = 10),
+          strip.text = element_text(size = 6),
+          axis.ticks = element_blank(), 
+          axis.text.y = element_text(size = 4), 
+          axis.text.x = element_text(size = 5, angle = 70), 
+          legend.position = "none")
+      
+      x2 <- girafe(code = print(x2))
+      
+      tooltip_css <- "padding:10px;border-radius:10px 20px 10px 20px;"
+      
+      girafe_options(x2, 
+                     opts_tooltip(offx = -60, 
+                                  offy = -120, use_fill = TRUE,
+                                  css = tooltip_css),
+                     opts_selection(css = 'fill:grey'))
+    })
+    
+    output$dt <- shiny::renderUI({
+      
+      if(is.null(input$calHeat_selected)){
+        print('Select Dates to View Table')
+      } else{
+
+      out <- ts_data2 %>%
+        filter(Name == input$name_select &
+                 Date %in% anytime::anydate(input$calHeat_selected)) %>%
+        select(1:4) %>% 
+        spread(key = metric, value = value) %>%
+        mutate_at(vars(3:5), round) %>%
+        mutate(`Percentage of Max Velocity` = 
+                 round(`Percentage of Max Velocity`, 2)) %>%
+        mutate(
+          `High Speed Distance` = ifelse(
+            `High Speed Distance` > 150,
+            cell_spec(`High Speed Distance`, "html", color = "red", bold = T),
+            ifelse(`High Speed Distance` < 50,
+                   cell_spec(`High Speed Distance`,"html",
+                             color = "blue", bold = T),
+                   cell_spec(`High Speed Distance`, "html",
+                             color = "green", italic = T))),
+          `Percentage of Max Velocity` =
+            cell_spec(
+              `Percentage of Max Velocity`, bold = T,
+              color = spec_color(`Percentage of Max Velocity`, end = 0.9),
+              font_size = spec_font_size(`Percentage of Max Velocity`)),
+          `Total Distance` = color_bar("#FA614B")(`Total Distance`),
+          `Moderate Speed Distance` =
+            color_tile("#DeF7E9", "#71CA97")(`Moderate Speed Distance`)
+        ) %>% kable('html',  caption = 'Session Loads', escape=FALSE,
+                    align = c(rep('l', 3), rep('c', 3))) %>%
+        kable_styling( bootstrap_options = c('striped', 'hover', 'responsive', 'condensed'))
+      
+      HTML(out)      }
+    })  
+    
+    
+    df <- reactive({
+      ts_data2 %>%
+        filter(Name == input$name_select &
+                 Date %in% anytime::anydate(input$calHeat_selected)) %>%
+        select(1:4) %>% 
+        spread(key = metric, value = value) %>%
+        mutate_at(vars(3:5), round) %>%
+        mutate(`Percentage of Max Velocity` = 
+                 scales::percent(`Percentage of Max Velocity`))
+      
+      
+    })
+    
+    
+    output$downloadFile <- downloadHandler(
+      filename = function(){paste0(input$name_select,"_", Sys.Date(), ".csv")},
+      content = function(file) {
+        write.csv(df(), file,
+                  row.names = FALSE)
+      }
+    )
+    
+    # Hide the loading message when the rest of the server function has executed
+    hide(id = "loading-content", anim = TRUE, animType = "fade")    
+    show("app-content")
+  },
+  
+  options = list(height = 1000)
+)
+```
